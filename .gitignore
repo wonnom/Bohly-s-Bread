@@ -47,3 +47,6 @@ htmlcov/
 build/
 !build/.gitkeep
 deployment_package
+
+# Trial reports
+reports/

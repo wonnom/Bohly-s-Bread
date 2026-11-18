@@ -1,109 +1,72 @@
-# Bohly's Bread News Alert Bot
+# Bohly's Bread News Brief
 
-This project monitors finance and macro news from multiple sources, filters for relevant APAC investment and infrastructure stories, summarizes the most relevant items, and sends Telegram alerts when new material stories are discovered.
+Collects Asia-Pacific project finance, banking and energy news, filters it, and sends a morning and evening brief to Telegram.
 
-## What it does
+## How it works
 
-- Pulls articles from NewsData and Finlight
-- Deduplicates articles using a hash-based cache
-- Uses Gemini to filter for meaningful APAC infrastructure, M&A, policy, and macro stories
-- Adds country and news type metadata for accepted items
-- Summarizes accepted stories in a second LLM pass
-- Sends Telegram alerts for new matches
-- Supports local runs using a JSON cache file and AWS Lambda/S3 when deployed
+| Step | When | What happens |
+|---|---|---|
+| Collect | Every 2 hours | Fetches RSS feeds, NewsData and Finlight, applies code filters, removes duplicates and queues articles. No LLM calls |
+| Brief | 07:30 and 19:30 SGT | Sends up to 40 queued articles to Gemini, summarises the best 12 or fewer and sends them to Telegram |
+
+If Gemini is unavailable, queued articles are kept and the next collect run retries the brief.
 
 ## Project structure
 
-- `main.py` — main orchestration logic and local Lambda-like entry point
-- `search_sources.py` — fetches data from NewsData and Finlight APIs
-- `llm.py` — Gemini-based classification and summary logic
-- `data/seen_urls.json` — local deduplication cache used when S3 is not configured
-- `.env` — local environment variables
-- `build/` — packaged duplicate copy, kept in sync with the main project files for deployment use
-
-## Requirements
-
-- Python 3.11+
-- A valid Gemini API key
-- A Telegram bot token and chat ID
-- NewsData API key
-- Finlight API key
+- `main.py`: Lambda entry point and pipeline
+- `src/feeds.py`: search queries and RSS feeds
+- `src/search_sources.py`: fetches and standardises articles
+- `src/ranking.py`: code filters, ordering and same-event dedupe
+- `src/llm.py`: Gemini filter and summary
+- `src/telegram.py`: message formatting and sending
+- `src/storage.py`: history and pending list, in S3 on AWS or `data/` locally
+- `src/report.py`: 7-day trial spreadsheet
+- `tests/`: automated tests
+- `docs/DEPLOYMENT.md`: CI/CD and AWS setup
 
 ## Setup
 
-1. Create a virtual environment:
+Requires Python 3.13.
 
 ```bash
-cd "/Users/weesi/Downloads/Personal Code/Bohly's Bread"
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements-dev.txt
 ```
 
-2. Install dependencies:
-
-```bash
-pip install --upgrade pip
-pip install boto3 python-dotenv google-genai finlight-client
-```
-
-3. Create a `.env` file in the project root with the following values:
+Create a `.env` file:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-3.8-flash
+GEMINI_BACKUP_MODEL=gemini-3.5-flash
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 NEWSDATA_API_KEY=your_newsdata_key
 FINLIGHT_API_KEY=your_finlight_key
-TOPICS="central bank digital currencies, infrastructure, energy, banking"
-S3_BUCKET_NAME=your_optional_aws_bucket_name
+S3_BUCKET_NAME=your_bucket_name
 ```
-
-Notes:
-- `S3_BUCKET_NAME` is optional for local development.
-- If it is not set, the app falls back to the local cache in `data/seen_urls.json`.
 
 ## Running locally
 
-Start the script:
-
 ```bash
-cd "/Users/weesi/Downloads/Personal Code/Bohly's Bread"
-source .venv/bin/activate
-python main.py
+pytest                          # run the tests
+python main.py collect --dry-run # fetch and filter without saving
+python main.py collect           # fetch and queue articles
+python main.py brief --dry-run   # print the brief without sending or saving
+python main.py brief             # send the brief to Telegram
 ```
 
-This runs the same Lambda-style entrypoint in local mode. If the AI service is temporarily unavailable or quota is exhausted, the script will return a controlled error instead of crashing.
+## 7-day trial report
 
-## How the app works
+After the trial, sign in to AWS on your computer and create the rating spreadsheet from the S3 data:
 
-1. It fetches articles from NewsData and Finlight based on the configured topics.
-2. It deduplicates based on article URL hash.
-3. It sends the candidate articles to Gemini for classification.
-4. Only accepted items are summarized and sent to Telegram.
-5. It keeps a local deduplication file at `data/seen_urls.json` unless AWS S3 is configured.
+```bash
+python main.py report --days 7 --from-s3
+```
 
-## AWS / Lambda notes
+The file is saved in `reports/`. Your AWS login needs read access to the bucket, and `S3_BUCKET_NAME` must be set in `.env`. Rate each article on the `Rate articles` sheet, and the `Summary`, `Feeds` and `Terms` sheets update as you go. An existing report is never overwritten.
 
-When deployed as a Lambda function, the app uses `S3_BUCKET_NAME` to read and write the deduplication state. If the environment variable is missing, it automatically falls back to the local JSON file for local development.
+## Deployment
 
-## Troubleshooting
-
-### Local script crashes on S3
-
-This is expected if `S3_BUCKET_NAME` is not set in a local environment. The app now checks for this condition and falls back to the local file cache.
-
-### Gemini quota error
-
-If Gemini returns a `429 RESOURCE_EXHAUSTED` error, the current API quota has been exceeded. The script handles this gracefully in local mode, but live filtering will pause until quota resets.
-
-### Telegram message not sending
-
-Check:
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- whether the bot has permission to send to that chat
-
-## License
-
-This project is for personal use and experimentation unless otherwise specified.
+GitHub runs the tests on every pull request. After merging to `main`, deploy with `scripts/deploy.sh`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the setup.

@@ -1,0 +1,66 @@
+name: Test and deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: ${{ vars.LAMBDA_PYTHON_VERSION || '3.13' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.LAMBDA_FUNCTION_NAME != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build the Lambda package
+        run: scripts/build_lambda.sh
+        env:
+          LAMBDA_ARCH: ${{ vars.LAMBDA_ARCH || 'x86_64' }}
+
+      - name: Sign in to AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload the new code
+        run: |
+          aws lambda update-function-code --function-name "$FUNCTION_NAME" \
+            --zip-file fileb://build/lambda.zip --output text --query LastUpdateStatus
+          aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+      - name: Check the deployed function
+        run: |
+          error=$(aws lambda invoke --function-name "$FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out --cli-read-timeout 300 \
+            --payload '{"mode": "collect", "dry_run": true}' \
+            --query FunctionError --output text response.json)
+          cat response.json
+          test "$error" = "None"
+          python -c "import json; assert json.load(open('response.json'))['statusCode'] == 200"
