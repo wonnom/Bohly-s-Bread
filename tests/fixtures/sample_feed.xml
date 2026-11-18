@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Sample</title>
+<item>
+  <title>ADB approves $500 million loan for Bangladesh solar</title>
+  <link>https://example.com/adb-loan?utm_source=rss</link>
+  <description><![CDATA[<p>The <b>Asian Development Bank</b> approved financing for 1,000 MW of solar.</p>]]></description>
+  <pubDate>Wed, 18 Nov 2026 02:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>China Gas doubles volume in LNG deal - Reuters</title>
+  <link>https://news.google.com/rss/articles/abc123</link>
+  <description>China Gas doubles volume in LNG deal Reuters</description>
+  <pubDate>Wed, 18 Nov 2026 03:00:00 GMT</pubDate>
+  <source url="https://www.reuters.com">Reuters</source>
+</item>
+</channel></rss>
