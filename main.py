@@ -19,7 +19,14 @@ from src.search_sources import (  # noqa: E402
     fetch_newsdata_articles,
     fetch_rss_articles,
 )
-from src.telegram import brief_id, build_brief_messages, edition_name, send_telegram_message  # noqa: E402
+from src.sheet_sync import is_configured as rating_sheet_configured, sync_ratings_sheet  # noqa: E402
+from src.telegram import (  # noqa: E402
+    brief_id,
+    build_brief_messages,
+    edition_name,
+    format_sheet_alert,
+    send_telegram_message,
+)  # noqa: E402
 
 NEWSDATA_API = os.environ.get("NEWSDATA_API_KEY", "")
 FINLIGHT_API = os.environ.get("FINLIGHT_API_KEY", "")
@@ -29,6 +36,16 @@ BATCH_SIZE = 20
 MAX_ARTICLES_PER_BRIEF = 12
 RECENT_EVENT_DAYS = 3
 LAMBDA_SAFETY_MARGIN_SECONDS = 60
+SHEET_SYNC_MIN_SECONDS = 45
+
+
+def _briefs_paused() -> bool:
+    """Pause article briefs only when the rating sheet can receive the articles instead."""
+    paused = os.environ.get("PAUSE_TELEGRAM_BRIEFS", "").strip().lower() == "true"
+    if paused and not rating_sheet_configured():
+        print("PAUSE_TELEGRAM_BRIEFS ignored because the rating sheet is not set up.")
+        return False
+    return paused
 
 
 def _now() -> datetime:
@@ -192,7 +209,8 @@ def run_brief(dry_run: bool = False) -> Dict[str, Any]:
             article["missed_cap"] = True
             storage.record_article(history, article, "accepted", now)
 
-    needs_summary = [article for article in selected if "summary" not in article]
+    paused = _briefs_paused()
+    needs_summary = [] if paused else [article for article in selected if "summary" not in article]
     for index, article in enumerate(needs_summary, start=1):
         article["id"] = index
     if needs_summary:
@@ -205,7 +223,18 @@ def run_brief(dry_run: bool = False) -> Dict[str, Any]:
         _save(history, state, dry_run)
 
     sent_count = 0
-    for text, group in build_brief_messages(selected, edition_name(now)):
+    if paused and selected:
+        for article in selected:
+            article["delivery"] = "sheet_only"
+            article["brief_id"] = brief_id(now)
+            storage.record_article(history, article, "sent", now, (article.get("decision") or {}).get("evidence"))
+        selected_urls = {article["url"] for article in selected}
+        state["articles"] = [article for article in state["articles"] if article["url"] not in selected_urls]
+        state["sheet_alert_due"] = True
+        sent_count = len(selected)
+        print(f"Telegram briefs paused: {sent_count} articles selected for the rating sheet.")
+
+    for text, group in [] if paused else build_brief_messages(selected, edition_name(now)):
         if dry_run:
             print(text)
             continue
@@ -234,6 +263,33 @@ def run_brief(dry_run: bool = False) -> Dict[str, Any]:
     return _response(200, stats)
 
 
+def _update_rating_sheet(context: Any) -> None:
+    """Update the client's rating sheet without ever failing the news run."""
+    def has_time() -> bool:
+        return context is None or context.get_remaining_time_in_millis() > SHEET_SYNC_MIN_SECONDS * 1000
+
+    try:
+        added = sync_ratings_sheet(should_continue=has_time) or 0
+        if _briefs_paused():
+            _announce_rating_sheet(added)
+    except Exception as exc:
+        print(f"Rating sheet update failed: {type(exc).__name__}")
+
+
+def _announce_rating_sheet(added: int) -> None:
+    """After a brief, send one Telegram alert once its articles have reached the sheet."""
+    state = storage.load_pending()
+    state["sheet_rows_unannounced"] += added
+
+    if state["sheet_alert_due"] and state["sheet_rows_unannounced"] > 0:
+        alert = format_sheet_alert(state["sheet_rows_unannounced"], os.environ.get("RATING_SHEET_URL", "").strip())
+        if send_telegram_message(alert):
+            state["sheet_alert_due"] = False
+            state["sheet_rows_unannounced"] = 0
+
+    storage.save_pending(state)
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """AWS Lambda entry point. Events without a mode run the 2-hourly collect step."""
     event = event or {}
@@ -243,10 +299,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         set_gemini_deadline(context.get_remaining_time_in_millis() / 1000 - LAMBDA_SAFETY_MARGIN_SECONDS)
 
     if mode == "collect":
-        return run_collect(dry_run=dry_run)
-    if mode == "brief":
-        return run_brief(dry_run=dry_run)
-    return _response(400, {"error": "mode must be collect or brief"})
+        result = run_collect(dry_run=dry_run)
+    elif mode == "brief":
+        result = run_brief(dry_run=dry_run)
+    else:
+        return _response(400, {"error": "mode must be collect or brief"})
+
+    if not dry_run:
+        _update_rating_sheet(context)
+    return result
 
 
 if __name__ == "__main__":

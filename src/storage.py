@@ -13,7 +13,7 @@ PENDING_KEY = "pending_articles.json"
 CODE_REJECTIONS_KEY = "code_rejections.json"
 HISTORY_RETENTION_DAYS = 30
 CODE_REJECTION_RETENTION_DAYS = 14
-TRIAL_FIELDS = ("score", "shortlist_rank", "brief_rank", "brief_id", "missed_cap")
+TRIAL_FIELDS = ("score", "shortlist_rank", "brief_rank", "brief_id", "missed_cap", "delivery")
 
 TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid", "cmpid", "ocid", "igshid"}
 
@@ -88,8 +88,13 @@ def save_history(records: List[Dict[str, Any]]) -> None:
 def load_pending() -> Dict[str, Any]:
     payload = _read_json(PENDING_KEY)
     if not isinstance(payload, dict):
-        return {"articles": [], "brief_due": False}
-    return {"articles": payload.get("articles", []), "brief_due": bool(payload.get("brief_due", False))}
+        payload = {}
+    return {
+        "articles": payload.get("articles", []),
+        "brief_due": bool(payload.get("brief_due", False)),
+        "sheet_alert_due": bool(payload.get("sheet_alert_due", False)),
+        "sheet_rows_unannounced": int(payload.get("sheet_rows_unannounced", 0)),
+    }
 
 
 def save_pending(state: Dict[str, Any]) -> None:

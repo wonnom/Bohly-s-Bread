@@ -77,6 +77,15 @@ def build_brief_messages(
     return messages
 
 
+def format_sheet_alert(new_articles: int, sheet_url: str) -> str:
+    """Announce new rating rows without revealing which articles the bot selected."""
+    noun = "article is" if new_articles == 1 else "articles are"
+    text = f"<b>📊 Rating sheet updated</b>\n{new_articles} new {noun} ready to rate."
+    if sheet_url.lower().startswith("https://"):
+        text += f'\n\n<a href="{_escape(sheet_url, 1000)}">Open the rating sheet</a>'
+    return text
+
+
 def send_telegram_message(text: str) -> bool:
     """Send one HTML message and report whether Telegram accepted it."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")

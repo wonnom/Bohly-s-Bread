@@ -21,6 +21,8 @@ If Gemini is unavailable, queued articles are kept and the next collect run retr
 - `src/telegram.py`: message formatting and sending
 - `src/storage.py`: history and pending list, in S3 on AWS or `data/` locally
 - `src/report.py`: 7-day trial spreadsheet
+- `src/sheet_sync.py`: adds trial articles to the Google rating sheet
+- `apps_script/Code.gs`: script that runs inside the Google Sheet
 - `tests/`: automated tests
 - `docs/DEPLOYMENT.md`: CI/CD and AWS setup
 
@@ -56,6 +58,10 @@ python main.py collect           # fetch and queue articles
 python main.py brief --dry-run   # print the brief without sending or saving
 python main.py brief             # send the brief to Telegram
 ```
+
+## Trial rating sheet
+
+During the trial, articles go to a Google Sheet for rating and Telegram only receives an update alert. See [docs/RATING_SHEET.md](docs/RATING_SHEET.md) for setup.
 
 ## 7-day trial report
 

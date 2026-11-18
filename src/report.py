@@ -12,39 +12,33 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from src import storage
-
-GROUP_SENT = "Sent"
-GROUP_CODE = "Removed by code filter"
-GROUP_REJECTED = "Rejected by Gemini"
-GROUP_MISSED_CAP = "Accepted, not sent"
-SPLIT_TUNE = "Tune"
-SPLIT_CHECK = "Check"
+from src.trial_data import (
+    ANALYSIS_COLUMNS,
+    CHECK_DAYS,
+    GROUP_CODE,
+    GROUP_MISSED_CAP,
+    GROUP_REJECTED,
+    GROUP_SENT,
+    HEADERS,
+    RATE_COLUMNS,
+    REASONS,
+    SGT,
+    SPLIT_CHECK,
+    SPLIT_TUNE,
+    article_group as _group,
+    parse_time as _parse,
+    row_values as _row_values,
+)
 
 SAMPLE_SIZE = 20
 SAMPLE_SEED = 7
-CHECK_DAYS = 2
 MAX_TERMS = 40
-REASONS = ["Off-topic", "Too minor", "Wrong region", "Duplicate", "Old news"]
 RATE_SHEET = "Rate articles"
-SGT = timezone(timedelta(hours=8))
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 INPUT_FILL = PatternFill("solid", fgColor="FFF4CC")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 WRAP = Alignment(wrap_text=True, vertical="top")
-
-# Rating columns come first. Analysis columns are collapsed so they don't influence the rating.
-RATE_COLUMNS = [
-    ("Useful", 10), ("Reason if not useful", 18), ("Title", 60), ("Description", 60), ("Source", 20),
-    ("Published", 13), ("Country", 14), ("News type", 24),
-]
-ANALYSIS_COLUMNS = [
-    ("Group", 22), ("Trial split", 10), ("Feed", 26), ("Provider", 10), ("Status", 14), ("Brief", 14),
-    ("Brief position", 9), ("Shortlist position", 9), ("Total score", 8), ("Strong terms", 8), ("Deal terms", 8),
-    ("Sector terms", 8), ("Amount", 8), ("Source trust", 8), ("Matched terms", 34), ("Gemini evidence", 50),
-    ("Code filter reason", 18), ("Link", 40),
-]
-HEADERS = [name for name, _ in RATE_COLUMNS + ANALYSIS_COLUMNS]
 
 START_HERE = [
     "How to use this trial report",
@@ -61,29 +55,9 @@ START_HERE = [
 ]
 
 
-def _parse(value: Optional[str]) -> Optional[datetime]:
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
 def _in_window(record: Dict[str, Any], start: datetime, now: datetime) -> bool:
     seen = _parse(record.get("first_seen"))
     return seen is not None and start <= seen <= now
-
-
-def _group(record: Dict[str, Any]) -> Optional[str]:
-    if record.get("status") == "code_rejected":
-        return GROUP_CODE
-    if record.get("status") == "sent":
-        return GROUP_SENT
-    if record.get("gemini_decision") == "rejected":
-        return GROUP_REJECTED
-    if record.get("gemini_decision") == "accepted":
-        return GROUP_MISSED_CAP
-    return None
 
 
 def _split(record: Dict[str, Any], start: datetime, days: int) -> str:
@@ -113,29 +87,6 @@ def _style_header(sheet, widths: List[int]) -> None:
         cell.fill, cell.font, cell.alignment = HEADER_FILL, HEADER_FONT, WRAP
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.freeze_panes = "A2"
-
-
-def _published(record: Dict[str, Any]) -> str:
-    moment = _parse(record.get("published_at"))
-    return moment.astimezone(SGT).strftime("%d %b %Y") if moment else ""
-
-
-def _row_values(record: Dict[str, Any], group: str, split: str) -> Dict[str, Any]:
-    score = record.get("score") or {}
-    terms = score.get("matched_terms") or []
-    return {
-        "Title": record.get("title", ""), "Description": record.get("description", ""),
-        "Source": record.get("source", ""), "Published": _published(record),
-        "Country": record.get("country", ""), "News type": record.get("news_type", ""),
-        "Group": group, "Trial split": split, "Feed": record.get("feed") or record.get("provider") or "unknown",
-        "Provider": record.get("provider", ""), "Status": record.get("status", ""),
-        "Brief": record.get("brief_id", ""), "Brief position": record.get("brief_rank"),
-        "Shortlist position": record.get("shortlist_rank"), "Total score": score.get("total"),
-        "Strong terms": score.get("strong"), "Deal terms": score.get("deal"), "Sector terms": score.get("sector"),
-        "Amount": score.get("amount"), "Source trust": score.get("trust"),
-        "Matched terms": f"|{'|'.join(terms)}|" if terms else "", "Gemini evidence": record.get("evidence", ""),
-        "Code filter reason": record.get("reason", ""), "Link": record.get("url", ""),
-    }
 
 
 def _write_rate_sheet(sheet, rows: List[Dict[str, Any]]) -> None:
