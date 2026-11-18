@@ -12,7 +12,27 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_BACKUP_MODEL = os.getenv("GEMINI_BACKUP_MODEL", "gemini-3.5-flash")
-GEMINI_TIMEOUT_MS = 60_000
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "300"))
+MIN_CALL_SECONDS = 30
+RETRY_DELAY_SECONDS = 10
+
+_deadline: Optional[float] = None
+
+
+def set_gemini_deadline(seconds_from_now: Optional[float]) -> None:
+    """Stop starting Gemini calls after this many seconds. None removes the limit."""
+    global _deadline
+    _deadline = None if seconds_from_now is None else time.monotonic() + seconds_from_now
+
+
+def _attempt_timeout_ms() -> int:
+    """Allow the full timeout, shortened if the Lambda run is close to its time limit."""
+    if _deadline is None:
+        return GEMINI_TIMEOUT_SECONDS * 1000
+    remaining = _deadline - time.monotonic()
+    if remaining < MIN_CALL_SECONDS:
+        raise RuntimeError("Not enough Lambda time left for another Gemini call")
+    return int(min(GEMINI_TIMEOUT_SECONDS, remaining) * 1000)
 
 SYSTEM_RULES = """
 You are a senior project finance analyst screening news for a daily Asia-Pacific briefing.
@@ -99,11 +119,12 @@ def _generate_gemini_json(prompt: str, schema: Optional[types.Schema] = None) ->
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is missing. Add it to your .env file.")
 
-    client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_MS))
     last_error = None
 
     for attempt in range(2):
         model = GEMINI_MODEL if attempt == 0 else GEMINI_BACKUP_MODEL
+        timeout_ms = _attempt_timeout_ms()
+        client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=timeout_ms))
         try:
             response = client.models.generate_content(
                 model=model,
@@ -119,8 +140,8 @@ def _generate_gemini_json(prompt: str, schema: Optional[types.Schema] = None) ->
             last_error = exc
             print(f"Gemini call failed on attempt {attempt + 1}: {exc}")
             if attempt == 0:
-                print("Retrying in 10 seconds...")
-                time.sleep(10)
+                print(f"Retrying in {RETRY_DELAY_SECONDS} seconds...")
+                time.sleep(RETRY_DELAY_SECONDS)
 
     raise RuntimeError(f"Gemini call failed after retry: {last_error}")
 

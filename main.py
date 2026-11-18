@@ -13,7 +13,7 @@ if os.path.exists(".env"):
 
 from src import ranking, storage  # noqa: E402
 from src.feeds import NEWS_QUERIES, RSS_FEEDS  # noqa: E402
-from src.llm import classify_news_articles, summarize_articles  # noqa: E402
+from src.llm import classify_news_articles, set_gemini_deadline, summarize_articles  # noqa: E402
 from src.search_sources import (  # noqa: E402
     fetch_finlight_articles,
     fetch_newsdata_articles,
@@ -28,6 +28,7 @@ SHORTLIST_SIZE = 40
 BATCH_SIZE = 20
 MAX_ARTICLES_PER_BRIEF = 12
 RECENT_EVENT_DAYS = 3
+LAMBDA_SAFETY_MARGIN_SECONDS = 60
 
 
 def _now() -> datetime:
@@ -152,6 +153,8 @@ def run_brief(dry_run: bool = False) -> Dict[str, Any]:
         else:
             storage.record_article(history, article, "expired", now)
     state["articles"] = pending
+    state["brief_due"] = True  # Stays set if AWS stops this run, so the next collect retries it.
+    _save(history, state, dry_run)
 
     undecided = [article for article in pending if not article.get("decision")]
     candidates = ranking.shortlist(undecided, limit=SHORTLIST_SIZE)
@@ -236,6 +239,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     event = event or {}
     mode = event.get("mode", "collect")
     dry_run = event.get("dry_run") is True
+    if context is not None:
+        set_gemini_deadline(context.get_remaining_time_in_millis() / 1000 - LAMBDA_SAFETY_MARGIN_SECONDS)
 
     if mode == "collect":
         return run_collect(dry_run=dry_run)

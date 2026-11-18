@@ -227,3 +227,34 @@ def test_api_keys_are_never_logged(state_dir, monkeypatch, capsys):
 
 def test_handler_rejects_unknown_modes(state_dir):
     assert main.lambda_handler({"mode": "nonsense"}, None)["statusCode"] == 400
+
+
+def test_brief_is_marked_due_before_gemini_runs(pipeline, make_article, monkeypatch):
+    """If AWS stops the run part-way, the next collect must still retry the brief."""
+    pipeline["fetched"] = [make_article()]
+    main.run_collect()
+    seen = []
+
+    def classify(batch):
+        seen.append(storage.load_pending()["brief_due"])
+        return approve_all(batch)
+
+    monkeypatch.setattr(main, "classify_news_articles", classify)
+    main.run_brief()
+
+    assert seen == [True]
+    assert storage.load_pending()["brief_due"] is False
+
+
+def test_handler_limits_gemini_to_the_time_lambda_has_left(state_dir, monkeypatch):
+    deadlines = []
+    monkeypatch.setattr(main, "set_gemini_deadline", deadlines.append)
+    monkeypatch.setattr(main, "run_collect", lambda dry_run=False: {"statusCode": 200})
+
+    class Context:
+        def get_remaining_time_in_millis(self):
+            return 900_000
+
+    main.lambda_handler({"mode": "collect"}, Context())
+
+    assert deadlines == [900 - main.LAMBDA_SAFETY_MARGIN_SECONDS]
