@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+
+import pytest
+
 from src import llm
 
 
@@ -60,3 +64,61 @@ def test_summaries_are_matched_by_id(monkeypatch):
     summaries = llm.summarize_articles(articles())
 
     assert summaries[1]["key_figures"] == ["$500m"]
+
+
+class FakeGemini:
+    """Records the timeout and model used for each Gemini attempt."""
+
+    def __init__(self, monkeypatch, responses):
+        self.timeouts = []
+        self.models_used = []
+        self.responses = list(responses)
+        monkeypatch.setattr(llm, "GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(llm.time, "sleep", lambda seconds: None)
+        monkeypatch.setattr(llm.genai, "Client", self._client)
+
+    def _client(self, api_key, http_options):
+        self.timeouts.append(http_options.timeout)
+        return SimpleNamespace(models=SimpleNamespace(generate_content=self._generate))
+
+    def _generate(self, model, contents, config):
+        self.models_used.append(model)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return SimpleNamespace(text=response)
+
+
+@pytest.fixture(autouse=True)
+def clear_deadline():
+    llm.set_gemini_deadline(None)
+    yield
+    llm.set_gemini_deadline(None)
+
+
+def test_each_attempt_can_wait_five_minutes_before_using_the_backup(monkeypatch):
+    gemini = FakeGemini(monkeypatch, [RuntimeError("504"), '{"results": []}'])
+
+    assert llm._generate_gemini_json("prompt") == {"results": []}
+
+    assert gemini.timeouts == [300_000, 300_000]
+    assert gemini.models_used == [llm.GEMINI_MODEL, llm.GEMINI_BACKUP_MODEL]
+
+
+def test_attempt_is_shortened_to_fit_the_remaining_lambda_time(monkeypatch):
+    gemini = FakeGemini(monkeypatch, ['{"results": []}'])
+    llm.set_gemini_deadline(100)
+
+    llm._generate_gemini_json("prompt")
+
+    assert 90_000 <= gemini.timeouts[0] <= 100_000
+
+
+def test_no_call_starts_when_too_little_time_remains(monkeypatch):
+    gemini = FakeGemini(monkeypatch, ['{"results": []}'])
+    llm.set_gemini_deadline(5)
+
+    with pytest.raises(RuntimeError, match="time"):
+        llm._generate_gemini_json("prompt")
+
+    assert gemini.models_used == []

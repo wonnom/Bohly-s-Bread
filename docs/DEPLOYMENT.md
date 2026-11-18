@@ -116,7 +116,7 @@ API keys stay in the Lambda's environment variables and never go into GitHub.
 
 These only need doing once:
 
-1. Set the function timeout to **10 minutes**, because a brief can wait on several Gemini retries.
+1. Set the function timeout to **15 minutes**, the Lambda maximum, because each Gemini attempt can wait up to 5 minutes.
 2. Set `GEMINI_BACKUP_MODEL` to a model your key can use, for example `gemini-3.5-flash`.
 3. Confirm the handler is `main.lambda_handler`.
 4. Allow the Lambda's role to read and write `seen_urls.json`, `pending_articles.json` and `code_rejections.json` in your S3 bucket.
