@@ -5,7 +5,7 @@
  */
 const RATE_SHEET = "Rate articles";
 const VISIBLE_COLUMNS = 7;
-const REASONS = ["Off-topic", "Too minor", "Wrong region", "Duplicate", "Old news"];
+const REASONS = ["Off-topic", "Too minor", "Wrong region", "Duplicate", "Old news", "Not Interested"];
 const GROUP_SENT = "Sent";
 const GROUP_MISSED_CAP = "Accepted, not sent";
 const GROUP_REJECTED = "Rejected by Gemini";

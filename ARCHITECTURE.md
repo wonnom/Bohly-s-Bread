@@ -287,7 +287,7 @@ stateDiagram-v2
 | Rejected by Gemini | Up to 3 per day |
 | Removed by code filter | Up to 3 per day |
 
-**How the client rates:** Yes or No under **Useful**, and for No, one of these reasons: off-topic, too minor, wrong region, duplicate or old news.
+**How the client rates:** Yes or No under **Useful**, and for No, one of these reasons: off-topic, too minor, wrong region, duplicate, old news or not interested.
 
 **Live results** appear in the **Summary**, **Feeds** and **Terms** tabs. For full per-feed results at every stage, including articles never added to the sheet, run:
 

@@ -9,7 +9,7 @@ GROUP_MISSED_CAP = "Accepted, not sent"
 SPLIT_TUNE = "Tune"
 SPLIT_CHECK = "Check"
 CHECK_DAYS = 2
-REASONS = ["Off-topic", "Too minor", "Wrong region", "Duplicate", "Old news"]
+REASONS = ["Off-topic", "Too minor", "Wrong region", "Duplicate", "Old news", "Not Interested"]
 SGT = timezone(timedelta(hours=8))
 
 # Rating columns come first. Analysis columns are collapsed so they don't influence the rating.
